@@ -2,30 +2,40 @@ import { useEffect, useState } from "react";
 import { Clock } from "lucide-react";
 
 interface TimerProps {
-  initialMinutes: number;
+  initialMinutes?: number;
+  initialSeconds?: number;
+  running?: boolean;
   onTimeUp?: () => void;
   onTick?: (secondsLeft: number) => void;
 }
 
-export const Timer = ({ initialMinutes, onTimeUp, onTick }: TimerProps) => {
-  const [timeLeft, setTimeLeft] = useState(initialMinutes * 60);
+export const Timer = ({ initialMinutes, initialSeconds, running = true, onTimeUp, onTick }: TimerProps) => {
+  const [timeLeft, setTimeLeft] = useState(
+    typeof initialSeconds === 'number' ? initialSeconds : (initialMinutes || 0) * 60
+  );
 
   useEffect(() => {
+    // reset when initialSeconds changes
+    if (typeof initialSeconds === 'number') {
+      setTimeLeft(initialSeconds);
+    }
+  }, [initialSeconds]);
+
+  useEffect(() => {
+    if (!running) return; // paused
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [running]);
+
+  // Notify parent on each tick based on timeLeft changes
+  useEffect(() => {
+    try { onTick?.(timeLeft); } catch {}
     if (timeLeft <= 0) {
       onTimeUp?.();
-      return;
     }
-
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => {
-        const next = Math.max(0, prev - 1);
-        try { onTick?.(next); } catch {}
-        return next;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [timeLeft, onTimeUp]);
+  }, [timeLeft, onTick, onTimeUp]);
 
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;

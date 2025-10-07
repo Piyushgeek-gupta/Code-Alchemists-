@@ -14,6 +14,11 @@ const app = express();
 app.use(bodyParser.json());
 app.use(cors({ origin: true }));
 
+// Health endpoint for connectivity checks
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
+
 // Helper to verify user via JWT (optional) - uses Supabase admin endpoint to get user by token
 async function verifyUser(accessToken) {
   try {
@@ -77,11 +82,37 @@ app.post('/submit', async (req, res) => {
   }
 
   try {
+    const pid = req.body.participantId || participantId;
+    const qid = questionId || null;
+
+    // Hard pre-check: if already has a correct submission for this question, do not award again
+    if (pid && qid) {
+      const { data: already, error: alreadyErr } = await supabase
+        .from('submissions')
+        .select('id')
+        .eq('participant_id', pid)
+        .eq('question_id', qid)
+        .eq('status', 'correct')
+        .limit(1)
+        .maybeSingle();
+      if (alreadyErr) throw alreadyErr;
+      if (already) {
+        // Already solved: do not insert or log duplicates
+        const { data: partRow } = await supabase
+          .from('participants')
+          .select('score')
+          .eq('id', pid)
+          .limit(1)
+          .maybeSingle();
+        return res.json({ success: true, participant_id: pid, new_score: partRow?.score || 0, already_solved: true });
+      }
+    }
+
     // Call RPC submit_and_increment if exists
     try {
       const { data, error } = await supabase.rpc('submit_and_increment', {
-        p_participant_id: req.body.participantId || participantId,
-        p_question_id: questionId || null,
+        p_participant_id: pid,
+        p_question_id: qid,
         p_submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
         p_status: 'correct',
         p_points_awarded: points,
@@ -89,33 +120,127 @@ app.post('/submit', async (req, res) => {
       if (error) throw error;
       return res.json({ success: true, data });
     } catch (rpcErr) {
-      // Fallback: insert submission and update participant score
-      const { error: subErr } = await supabase.from('submissions').insert([
-        {
-          participant_id: req.body.participantId || participantId,
-          question_id: questionId || null,
-          submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
-          status: 'correct',
-          points_awarded: points,
-        },
-      ]);
-      if (subErr) throw subErr;
-
-      const { data: partData, error: partErr } = await supabase
-        .from('participants')
-        .select('score')
-        .eq('id', req.body.participantId || participantId)
+      // Fallback: implement idempotent behavior manually
+      // Check if already solved correctly
+      const { data: existing, error: existErr } = await supabase
+        .from('submissions')
+        .select('id')
+        .eq('participant_id', pid)
+        .eq('question_id', qid)
+        .eq('status', 'correct')
         .limit(1)
         .maybeSingle();
-      let newScore = (partData?.score || 0) + points;
-      if (partErr) {
-        // attempt to still update
+      if (existErr) throw existErr;
+
+      if (!existing) {
+        // First correct submission -> insert and increment
+        const { error: subErr } = await supabase.from('submissions').insert([
+          {
+            participant_id: pid,
+            question_id: qid,
+            submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
+            status: 'correct',
+            points_awarded: points,
+          },
+        ]);
+        if (subErr) throw subErr;
+
+        const { data: partData } = await supabase
+          .from('participants')
+          .select('score')
+          .eq('id', pid)
+          .limit(1)
+          .maybeSingle();
+        const newScore = (partData?.score || 0) + points;
+        const { error: updErr } = await supabase
+          .from('participants')
+          .update({ score: newScore })
+          .eq('id', pid);
+        if (updErr) throw updErr;
+        // audit log for scoring submission
+        try {
+          const { data: partInfo } = await supabase
+            .from('participants')
+            .select('id, user_id')
+            .eq('id', pid)
+            .limit(1)
+            .maybeSingle();
+          let participantName = null;
+          let participantEmail = null;
+          if (partInfo?.user_id) {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('full_name, email')
+              .eq('user_id', partInfo.user_id)
+              .limit(1)
+              .maybeSingle();
+            participantName = prof?.full_name || null;
+            participantEmail = prof?.email || null;
+          }
+          await supabase.from('submission_audit_logs').insert([
+            {
+              participant_id: pid,
+              participant_name: participantName,
+              participant_email: participantEmail,
+              question_id: qid,
+              question_number: typeof req.body.questionNumber === 'number' ? req.body.questionNumber : null,
+              points_awarded: points,
+              time_left_seconds: typeof req.body.timeLeftSeconds === 'number' ? req.body.timeLeftSeconds : null,
+            },
+          ]);
+        } catch {}
+        return res.json({ success: true, participant_id: pid, new_score: newScore });
+      } else {
+        // Already solved -> record a non-scoring attempt for audit and return current score
+        await supabase.from('submissions').insert([
+          {
+            participant_id: pid,
+            question_id: qid,
+            submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
+            status: 'pending',
+            points_awarded: 0,
+          },
+        ]);
+        // audit log
+        try {
+          const { data: partInfo } = await supabase
+            .from('participants')
+            .select('id, user_id')
+            .eq('id', pid)
+            .limit(1)
+            .maybeSingle();
+          let participantName = null;
+          let participantEmail = null;
+          if (partInfo?.user_id) {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('full_name, email')
+              .eq('user_id', partInfo.user_id)
+              .limit(1)
+              .maybeSingle();
+            participantName = prof?.full_name || null;
+            participantEmail = prof?.email || null;
+          }
+          await supabase.from('submission_audit_logs').insert([
+            {
+              participant_id: pid,
+              participant_name: participantName,
+              participant_email: participantEmail,
+              question_id: qid,
+              question_number: typeof req.body.questionNumber === 'number' ? req.body.questionNumber : null,
+              points_awarded: 0,
+              time_left_seconds: typeof req.body.timeLeftSeconds === 'number' ? req.body.timeLeftSeconds : null,
+            },
+          ]);
+        } catch {}
+        const { data: partData } = await supabase
+          .from('participants')
+          .select('score')
+          .eq('id', pid)
+          .limit(1)
+          .maybeSingle();
+        return res.json({ success: true, participant_id: pid, new_score: partData?.score || 0, already_solved: true });
       }
-
-      const { error: updErr } = await supabase.from('participants').update({ score: newScore }).eq('id', req.body.participantId || participantId);
-      if (updErr) throw updErr;
-
-      return res.json({ success: true, participant_id: req.body.participantId || participantId, new_score: newScore });
     }
   } catch (err) {
     console.error('submit error', err);

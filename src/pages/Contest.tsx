@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Timer } from "@/components/Timer";
 import { CodeEditor } from "@/components/CodeEditor";
-import { CheckCircle2, Circle, Code2, Send, Lightbulb } from "lucide-react";
+import { CheckCircle2, Circle, Code2, Send, Lightbulb, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 interface Question {
@@ -32,6 +32,11 @@ const Contest = () => {
   const [score, setScore] = useState(0);
   const [showHint, setShowHint] = useState(false);
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(30 * 60);
+  const [contestActive, setContestActive] = useState<boolean>(false);
+  const [contestDuration, setContestDuration] = useState<number>(30 * 60);
+  const [contestStartTime, setContestStartTime] = useState<string | null>(null);
+  const [contestPaused, setContestPaused] = useState<boolean>(false);
+  const [globalTimeLeft, setGlobalTimeLeft] = useState<number>(0);
 
   // Sample questions (in production, load from backend)
   const [questions, setQuestions] = useState<Question[]>([
@@ -84,9 +89,35 @@ const Contest = () => {
     }
     setSelectedLanguage(lang);
 
-    // Try to load questions from Supabase for the selected language
+    // Load contest state and questions from Supabase for the selected language
     (async () => {
       try {
+        // Fetch contest status and duration
+        const { data: contest } = await (await import("@/integrations/supabase/client")).supabase
+          .from("contests")
+          .select("status, duration_minutes, start_time")
+          .in("status", ["active", "paused"]) // allow pause state
+          .order("start_time", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const isActive = contest?.status === "active";
+        setContestActive(Boolean(isActive));
+        setContestPaused(contest?.status === 'paused');
+        setContestStartTime(contest?.start_time || null);
+        const durationSec = typeof contest?.duration_minutes === 'number' ? contest.duration_minutes * 60 : 30 * 60;
+        setContestDuration(durationSec);
+        // compute remaining time from server start_time
+        if (contest?.start_time) {
+          const startMs = new Date(contest.start_time).getTime();
+          const nowMs = Date.now();
+          const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+          const remaining = Math.max(0, durationSec - elapsed);
+          setTimeLeftSeconds(remaining);
+        } else {
+          setTimeLeftSeconds(durationSec);
+        }
+        setGlobalTimeLeft(timeLeftSeconds);
+
         // cast to DB enum type to satisfy TypeScript
         const langKey = lang as "python" | "c" | "java";
         const { data } = await (await import("@/integrations/supabase/client")).supabase
@@ -123,6 +154,20 @@ const Contest = () => {
       setCode(questions[0].faultyCode);
     })();
   }, [navigate]);
+
+  // Update global timer every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (contestStartTime && contestDuration) {
+        const startMs = new Date(contestStartTime).getTime();
+        const nowMs = Date.now();
+        const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+        const remaining = Math.max(0, contestDuration - elapsed);
+        setGlobalTimeLeft(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [contestStartTime, contestDuration]);
 
   const { user } = useAuth();
   const [participantId, setParticipantId] = useState<string | null>(null);
@@ -268,83 +313,52 @@ const Contest = () => {
             }
 
             if (pid) {
+              const prevScore = score || 0;
               try {
-                const session = await (supabase.auth.getSession() as any).then(r => r.data.session);
-                const token = session?.access_token;
-                const resp = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/submit', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                  },
-                  body: JSON.stringify({
-                    participantId: pid,
-                    questionId: questions[currentQuestion].dbId || null,
-                    submittedCode: code,
-                    points: currentPoints,
-                    email: localStorage.getItem("login_email") || null,
-                    selectedLanguage: selectedLanguage || null,
-                    timeLeftSeconds,
-                  }),
+                // Direct Supabase secure RPC call
+                const { data, error } = await (supabase as any).rpc('secure_submit_and_log', {
+                  p_question_id: questions[currentQuestion].dbId || null,
+                  p_question_number: questions[currentQuestion].id,
+                  p_submitted_code: code,
+                  p_points_awarded: currentPoints,
+                  p_time_left_seconds: timeLeftSeconds,
+                  p_email: localStorage.getItem("login_email") || null,
                 });
-
-                if (!resp.ok) {
-                  const body = await resp.json().catch(() => ({}));
-                  toast.error(`Submit failed: ${body?.error || resp.statusText}`);
-                  // fallback local
-                  saveLocalProgress(selectedLanguage, (score || 0) + currentPoints, questions.filter(q => q.solved).map(q => q.id));
-                  setScore((s) => s + currentPoints);
+                if (error) {
+                  toast.error(`Submit failed: ${error.message}`);
                 } else {
-                  const data = await resp.json();
-                  const newScore = data?.data ? (Array.isArray(data.data) ? data.data[0]?.new_score : data.data.new_score) : data?.new_score;
+                  const newScore = Array.isArray(data) ? data[0]?.new_score : data?.new_score;
+                  const alreadySolved = Array.isArray(data) ? data[0]?.already_solved : data?.already_solved;
                   if (typeof newScore === 'number') {
                     setScore(newScore);
                     try { localStorage.removeItem(`progress_${selectedLanguage}`); } catch {}
-                  } else if (typeof data?.new_score === 'number') {
-                    setScore(data.new_score);
+                    if (alreadySolved) {
+                      toast.info("Already solved!");
+                    } else if (newScore > prevScore) {
+                      toast.success(`Correct! +${currentPoints} points`, { description: "Bug fixed successfully!" });
+                    } else {
+                      toast.info("Already solved!");
+                    }
                   } else {
-                    setScore((s) => s + currentPoints);
+                    toast.error('Unexpected submit response');
                   }
                 }
               } catch (err: any) {
                 console.error('Submit request failed', err);
-                // Fallback: direct RPC attempt (useful if server down; requires appropriate RLS/dev policy)
-                try {
-                  const { data, error } = await supabase.rpc('submit_and_increment', {
-                    p_participant_id: pid,
-                    p_question_id: questions[currentQuestion].dbId || null,
-                    p_submitted_code: code,
-                    p_status: 'correct',
-                    p_points_awarded: currentPoints,
-                  });
-                  if (error) throw error;
-                  const newScore = Array.isArray(data) ? data[0]?.new_score : data?.new_score;
-                  if (typeof newScore === 'number') {
-                    setScore(newScore);
-                    try { localStorage.removeItem(`progress_${selectedLanguage}`); } catch {}
-                    return;
-                  }
-                } catch (fallbackErr: any) {
-                  toast.error(`Submit failed: ${err?.message || String(err)}`);
-                }
-                saveLocalProgress(selectedLanguage, (score || 0) + currentPoints, questions.filter(q => q.solved).map(q => q.id));
-                setScore((s) => s + currentPoints);
+                toast.error('Submit failed: server unavailable');
+                // No RPC fallback to avoid CORS/401 and double-award risk
               }
             } else {
               // no participantId resolved: persist locally
-              const newLocalScore = (score || 0) + currentPoints;
-              setScore(newLocalScore);
-              saveLocalProgress(selectedLanguage, newLocalScore, questions.filter(q => q.solved).map(q => q.id));
+              // Do not increment locally; just persist solved status
+              saveLocalProgress(selectedLanguage, (score || 0), questions.filter(q => q.solved).map(q => q.id));
+              toast.success(`Correct!`, { description: "Bug fixed successfully!" });
             }
           } catch (err) {
             console.error("Error persisting submission/score:", err);
-            setScore((s) => s + currentPoints);
+            toast.error('Failed to persist submission');
           }
         })();
-
-        toast.success(`Correct! +${currentPoints} points`, {
-          description: "Bug fixed successfully!",
-        });
       } else {
         toast.info("Already solved!");
       }
@@ -379,7 +393,18 @@ const Contest = () => {
               <span className="text-sm text-muted-foreground">Score: </span>
               <span className="text-2xl font-bold text-primary">{score}</span>
             </div>
-            <Timer initialMinutes={30} onTimeUp={handleTimeUp} onTick={(s) => setTimeLeftSeconds(s)} />
+            {contestActive && globalTimeLeft > 0 && (
+              <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-card border border-border">
+                <Clock className="h-5 w-5 text-primary" />
+                <div className="flex flex-col">
+                  <span className="text-xs text-muted-foreground">Contest Time</span>
+                  <span className="text-lg font-bold font-mono">
+                    {String(Math.floor(globalTimeLeft / 60)).padStart(2, "0")}:
+                    {String(globalTimeLeft % 60).padStart(2, "0")}
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -478,6 +503,15 @@ const Contest = () => {
             </Button>
           </div>
         </div>
+        {(!contestActive || contestPaused) && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <Card className="p-8 max-w-lg text-center space-y-4">
+              <h2 className="text-2xl font-bold">{contestPaused ? 'Contest is paused' : 'Contest has not started'}</h2>
+              <p className="text-muted-foreground">Please wait for the admin.</p>
+              <Button onClick={() => navigate('/')} className="mt-2">Go Back</Button>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

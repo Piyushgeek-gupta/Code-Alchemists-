@@ -18,6 +18,7 @@ export const Submissions = () => {
 
   const fetchSubmissions = async () => {
     try {
+      // Directly fetch tables since policies are open for SELECT
       const { data: subs, error: subsErr } = await supabase
         .from("submissions")
         .select("id, participant_id, question_id, submitted_code, status, points_awarded, attempt_number, submitted_at, execution_output")
@@ -34,35 +35,27 @@ export const Submissions = () => {
       const participantIds = Array.from(new Set(submissionsData.map((s) => s.participant_id).filter(Boolean)));
       const questionIds = Array.from(new Set(submissionsData.map((s) => s.question_id).filter(Boolean)));
 
-      // Fetch participants and their profiles
       let participantsMap: Record<string, any> = {};
       if (participantIds.length > 0) {
-        const { data: partsData, error: partsErr } = await supabase
+        const { data: partsData } = await supabase
           .from("participants")
           .select("id, user_id")
           .in("id", participantIds);
-
-        if (!partsErr && partsData) {
-          const userIds = Array.from(new Set(partsData.map((p) => p.user_id).filter(Boolean)));
-          const { data: profilesData } = await supabase.from("profiles").select("user_id, full_name, email").in("user_id", userIds);
-          const profilesMap = (profilesData || []).reduce((acc: Record<string, any>, p: any) => {
-            acc[p.user_id] = p;
-            return acc;
-          }, {} as Record<string, any>);
-
-          partsData.forEach((p: any) => {
-            participantsMap[p.id] = { ...p, profiles: profilesMap[p.user_id] ?? null };
-          });
-        }
+        const userIds = Array.from(new Set((partsData || []).map((p: any) => p.user_id).filter(Boolean)));
+        const { data: profilesData } = await supabase.from("profiles").select("user_id, full_name, email").in("user_id", userIds);
+        const profilesMap = (profilesData || []).reduce((acc: Record<string, any>, p: any) => {
+          acc[p.user_id] = p;
+          return acc;
+        }, {} as Record<string, any>);
+        (partsData || []).forEach((p: any) => {
+          participantsMap[p.id] = { ...p, profiles: profilesMap[p.user_id] ?? null };
+        });
       }
 
-      // Fetch questions (include faulty_code for drill-in)
       let questionsMap: Record<string, any> = {};
       if (questionIds.length > 0) {
-        const { data: questionsData, error: questionsErr } = await supabase.from("questions").select("id, title, language, faulty_code, problem_statement, points").in("id", questionIds);
-        if (!questionsErr && questionsData) {
-          questionsData.forEach((q: any) => (questionsMap[q.id] = q));
-        }
+        const { data: questionsData } = await supabase.from("questions").select("id, title, language, points").in("id", questionIds);
+        (questionsData || []).forEach((q: any) => (questionsMap[q.id] = q));
       }
 
       const merged = submissionsData.map((s) => ({
@@ -151,9 +144,7 @@ export const Submissions = () => {
                           <h3 className="font-semibold">Question Details</h3>
                           <div className="text-sm">Points: {submission.questions.points ?? '-'}</div>
                           <div className="text-sm">Problem:</div>
-                          <div className="bg-accent p-3 rounded text-sm whitespace-pre-wrap">{submission.questions.problem_statement || ''}</div>
-                          <div className="text-sm">Faulty Code:</div>
-                          <div className="bg-accent p-3 rounded text-sm overflow-auto max-h-[300px]"><pre>{submission.questions.faulty_code || ''}</pre></div>
+                          <div className="bg-accent p-3 rounded text-sm whitespace-pre-wrap">N/A in view</div>
                         </div>
                       )}
                       {submission.execution_output && submission.execution_output.length > 0 && (

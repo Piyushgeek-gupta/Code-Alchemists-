@@ -114,7 +114,7 @@ const LanguageSelection = () => {
       return;
     }
 
-    toast.success(`${language} selected! Timer starting...`);
+    toast.success(`${language} selected!`);
     // Store lowercase language id to match DB enum values (python, c, java)
     const key = language.toLowerCase();
     localStorage.setItem("selectedLanguage", key);
