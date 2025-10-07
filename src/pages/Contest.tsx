@@ -37,6 +37,7 @@ const Contest = () => {
   const [contestStartTime, setContestStartTime] = useState<string | null>(null);
   const [contestPaused, setContestPaused] = useState<boolean>(false);
   const [globalTimeLeft, setGlobalTimeLeft] = useState<number>(0);
+  const [contestLoading, setContestLoading] = useState<boolean>(true);
 
   // Sample questions (in production, load from backend)
   const [questions, setQuestions] = useState<Question[]>([
@@ -90,7 +91,7 @@ const Contest = () => {
     setSelectedLanguage(lang);
 
     // Load contest state and questions from Supabase for the selected language
-    (async () => {
+    const loadContestData = async () => {
       try {
         // Fetch contest status and duration
         const { data: contest } = await (await import("@/integrations/supabase/client")).supabase
@@ -152,13 +153,46 @@ const Contest = () => {
 
       // Fallback to built-in samples
       setCode(questions[0].faultyCode);
+    };
+
+    loadContestData().finally(() => {
+      setContestLoading(false);
+    });
+
+    // Set up real-time subscription to contest status changes
+    let subscription: any = null;
+    (async () => {
+      const { supabase } = await import("@/integrations/supabase/client");
+      subscription = supabase
+        .channel('contest-status-changes')
+        .on('postgres_changes', 
+          { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'contests',
+            filter: 'status=in.(active,paused,completed)'
+          }, 
+          (payload) => {
+            console.log('Contest status changed:', payload);
+            // Reload contest data when status changes
+            loadContestData();
+          }
+        )
+        .subscribe();
     })();
+
+    return () => {
+      if (subscription) {
+        subscription.unsubscribe();
+      }
+    };
   }, [navigate]);
 
   // Update global timer every second
   useEffect(() => {
     const interval = setInterval(() => {
-      if (contestStartTime && contestDuration) {
+      // Only update timer if contest is active (not paused)
+      if (contestActive && !contestPaused && contestStartTime && contestDuration) {
         const startMs = new Date(contestStartTime).getTime();
         const nowMs = Date.now();
         const elapsed = Math.max(0, Math.floor((nowMs - startMs) / 1000));
@@ -167,7 +201,7 @@ const Contest = () => {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [contestStartTime, contestDuration]);
+  }, [contestActive, contestPaused, contestStartTime, contestDuration]);
 
   const { user } = useAuth();
   const [participantId, setParticipantId] = useState<string | null>(null);
@@ -418,6 +452,7 @@ const Contest = () => {
                 size="sm"
                 onClick={() => handleQuestionChange(index)}
                 className="min-w-fit"
+                disabled={contestPaused}
               >
                 {q.solved ? (
                   <CheckCircle2 className="h-4 w-4 mr-2 text-green-500" />
@@ -480,7 +515,11 @@ const Contest = () => {
                     </div>
                   </div>
                 ) : (
-                  <Button variant="outline" onClick={() => setShowHint(true)}>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowHint(true)}
+                    disabled={contestPaused}
+                  >
                     <Lightbulb className="mr-2 h-4 w-4" />
                     Show Hint
                   </Button>
@@ -497,17 +536,25 @@ const Contest = () => {
             <Button
               onClick={handleSubmit}
               className="w-full bg-primary hover:bg-primary/90 text-primary-foreground py-6 text-lg font-semibold"
+              disabled={contestPaused}
             >
               <Send className="mr-2 h-5 w-5" />
-              Submit Solution
+              {contestPaused ? 'Contest Paused' : 'Submit Solution'}
             </Button>
           </div>
         </div>
-        {(!contestActive || contestPaused) && (
+        {!contestLoading && (!contestActive || contestPaused) && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
             <Card className="p-8 max-w-lg text-center space-y-4">
-              <h2 className="text-2xl font-bold">{contestPaused ? 'Contest is paused' : 'Contest has not started'}</h2>
-              <p className="text-muted-foreground">Please wait for the admin.</p>
+              <h2 className="text-2xl font-bold">
+                {contestPaused ? 'Contest is Paused' : 'Contest has not started'}
+              </h2>
+              <p className="text-muted-foreground">
+                {contestPaused 
+                  ? 'The contest has been paused by the admin. Please wait for it to resume.' 
+                  : 'Please wait for the admin to start the contest.'
+                }
+              </p>
               <Button onClick={() => navigate('/')} className="mt-2">Go Back</Button>
             </Card>
           </div>

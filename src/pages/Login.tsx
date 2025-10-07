@@ -53,6 +53,14 @@ const Login = () => {
       return;
     }
 
+    // Special admin redirect for test account
+    if (email === "testtest@gmail.com" && password === "test1234") {
+      toast.success("Admin login successful!");
+      try { localStorage.setItem("login_email", email); } catch (e) {}
+      navigate("/admin");
+      return;
+    }
+
     if (!participant) {
       toast.error("Access restricted. Your account is not registered as a participant.");
       if (signInData?.user) await supabase.auth.signOut();
