@@ -14,16 +14,349 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      announcements: {
+        Row: {
+          contest_id: string | null
+          created_at: string | null
+          id: string
+          message: string
+          sent_by: string
+        }
+        Insert: {
+          contest_id?: string | null
+          created_at?: string | null
+          id?: string
+          message: string
+          sent_by: string
+        }
+        Update: {
+          contest_id?: string | null
+          created_at?: string | null
+          id?: string
+          message?: string
+          sent_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "announcements_contest_id_fkey"
+            columns: ["contest_id"]
+            isOneToOne: false
+            referencedRelation: "contests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contest_settings: {
+        Row: {
+          anti_cheat_enabled: boolean | null
+          auto_save_enabled: boolean | null
+          contest_id: string | null
+          id: string
+          max_attempts_per_question: number | null
+          track_tab_switches: boolean | null
+          updated_at: string | null
+        }
+        Insert: {
+          anti_cheat_enabled?: boolean | null
+          auto_save_enabled?: boolean | null
+          contest_id?: string | null
+          id?: string
+          max_attempts_per_question?: number | null
+          track_tab_switches?: boolean | null
+          updated_at?: string | null
+        }
+        Update: {
+          anti_cheat_enabled?: boolean | null
+          auto_save_enabled?: boolean | null
+          contest_id?: string | null
+          id?: string
+          max_attempts_per_question?: number | null
+          track_tab_switches?: boolean | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contest_settings_contest_id_fkey"
+            columns: ["contest_id"]
+            isOneToOne: true
+            referencedRelation: "contests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contests: {
+        Row: {
+          allowed_languages:
+            | Database["public"]["Enums"]["programming_language"][]
+            | null
+          created_at: string | null
+          created_by: string | null
+          description: string | null
+          duration_minutes: number
+          end_time: string | null
+          id: string
+          name: string
+          start_time: string | null
+          status: Database["public"]["Enums"]["contest_status"] | null
+          updated_at: string | null
+        }
+        Insert: {
+          allowed_languages?:
+            | Database["public"]["Enums"]["programming_language"][]
+            | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          duration_minutes?: number
+          end_time?: string | null
+          id?: string
+          name: string
+          start_time?: string | null
+          status?: Database["public"]["Enums"]["contest_status"] | null
+          updated_at?: string | null
+        }
+        Update: {
+          allowed_languages?:
+            | Database["public"]["Enums"]["programming_language"][]
+            | null
+          created_at?: string | null
+          created_by?: string | null
+          description?: string | null
+          duration_minutes?: number
+          end_time?: string | null
+          id?: string
+          name?: string
+          start_time?: string | null
+          status?: Database["public"]["Enums"]["contest_status"] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      participants: {
+        Row: {
+          completed_at: string | null
+          contest_id: string | null
+          created_at: string | null
+          id: string
+          is_blocked: boolean | null
+          score: number | null
+          selected_language:
+            | Database["public"]["Enums"]["programming_language"]
+            | null
+          started_at: string | null
+          tab_switches: number | null
+          time_taken_seconds: number | null
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          contest_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_blocked?: boolean | null
+          score?: number | null
+          selected_language?:
+            | Database["public"]["Enums"]["programming_language"]
+            | null
+          started_at?: string | null
+          tab_switches?: number | null
+          time_taken_seconds?: number | null
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          contest_id?: string | null
+          created_at?: string | null
+          id?: string
+          is_blocked?: boolean | null
+          score?: number | null
+          selected_language?:
+            | Database["public"]["Enums"]["programming_language"]
+            | null
+          started_at?: string | null
+          tab_switches?: number | null
+          time_taken_seconds?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "participants_contest_id_fkey"
+            columns: ["contest_id"]
+            isOneToOne: false
+            referencedRelation: "contests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string | null
+          email: string | null
+          full_name: string | null
+          id: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          email?: string | null
+          full_name?: string | null
+          id?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      questions: {
+        Row: {
+          correct_code: string
+          created_at: string | null
+          created_by: string | null
+          difficulty: Database["public"]["Enums"]["difficulty_level"]
+          enabled: boolean | null
+          faulty_code: string
+          hint: string | null
+          id: string
+          language: Database["public"]["Enums"]["programming_language"]
+          points: number
+          problem_statement: string
+          test_cases: Json
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          correct_code: string
+          created_at?: string | null
+          created_by?: string | null
+          difficulty: Database["public"]["Enums"]["difficulty_level"]
+          enabled?: boolean | null
+          faulty_code: string
+          hint?: string | null
+          id?: string
+          language: Database["public"]["Enums"]["programming_language"]
+          points: number
+          problem_statement: string
+          test_cases: Json
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          correct_code?: string
+          created_at?: string | null
+          created_by?: string | null
+          difficulty?: Database["public"]["Enums"]["difficulty_level"]
+          enabled?: boolean | null
+          faulty_code?: string
+          hint?: string | null
+          id?: string
+          language?: Database["public"]["Enums"]["programming_language"]
+          points?: number
+          problem_statement?: string
+          test_cases?: Json
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      submissions: {
+        Row: {
+          attempt_number: number | null
+          execution_output: string | null
+          id: string
+          participant_id: string | null
+          points_awarded: number | null
+          question_id: string | null
+          status: Database["public"]["Enums"]["submission_status"] | null
+          submitted_at: string | null
+          submitted_code: string
+        }
+        Insert: {
+          attempt_number?: number | null
+          execution_output?: string | null
+          id?: string
+          participant_id?: string | null
+          points_awarded?: number | null
+          question_id?: string | null
+          status?: Database["public"]["Enums"]["submission_status"] | null
+          submitted_at?: string | null
+          submitted_code: string
+        }
+        Update: {
+          attempt_number?: number | null
+          execution_output?: string | null
+          id?: string
+          participant_id?: string | null
+          points_awarded?: number | null
+          question_id?: string | null
+          status?: Database["public"]["Enums"]["submission_status"] | null
+          submitted_at?: string | null
+          submitted_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "submissions_participant_id_fkey"
+            columns: ["participant_id"]
+            isOneToOne: false
+            referencedRelation: "participants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "submissions_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "moderator" | "user"
+      contest_status: "scheduled" | "active" | "paused" | "completed"
+      difficulty_level: "easy" | "medium" | "hard"
+      programming_language: "python" | "c" | "java"
+      submission_status: "pending" | "correct" | "incorrect" | "error"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +483,12 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "moderator", "user"],
+      contest_status: ["scheduled", "active", "paused", "completed"],
+      difficulty_level: ["easy", "medium", "hard"],
+      programming_language: ["python", "c", "java"],
+      submission_status: ["pending", "correct", "incorrect", "error"],
+    },
   },
 } as const
