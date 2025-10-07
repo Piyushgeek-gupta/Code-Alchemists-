@@ -28,26 +28,61 @@ async function verifyUser(accessToken) {
 app.post('/submit', async (req, res) => {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'Missing Authorization header' });
 
-  const { participantId, questionId, submittedCode, points } = req.body || {};
-  if (!participantId || typeof points !== 'number') {
-    return res.status(400).json({ error: 'participantId and points are required' });
+  const { participantId, questionId, submittedCode, points, email, selectedLanguage } = req.body || {};
+  if (typeof points !== 'number') {
+    return res.status(400).json({ error: 'points is required' });
   }
 
-  // Verify the token (optional, but recommended)
-  const { user, error: verifyErr } = await verifyUser(token);
-  if (verifyErr || !user) {
-    return res.status(401).json({ error: verifyErr?.message || 'Invalid token' });
+  // If a token is provided, verify it; otherwise allow fallback using service role by validating participant exists
+  if (token) {
+    const { user, error: verifyErr } = await verifyUser(token);
+    if (verifyErr || !user) {
+      return res.status(401).json({ error: verifyErr?.message || 'Invalid token' });
+    }
+  } else {
+    // No token: ensure we can resolve/create a participant by id or email
+    let pid = participantId || null;
+    if (!pid && email) {
+      // find user_id by email
+      const { data: prof, error: profErr } = await supabase
+        .from('profiles')
+        .select('user_id')
+        .eq('email', email)
+        .limit(1)
+        .maybeSingle();
+      if (profErr || !prof?.user_id) return res.status(401).json({ error: 'Unauthorized or user not found by email' });
+      // find or create participant for that user_id
+      const { data: part } = await supabase
+        .from('participants')
+        .select('id, selected_language')
+        .eq('user_id', prof.user_id)
+        .limit(1)
+        .maybeSingle();
+      if (part?.id) {
+        pid = part.id;
+      } else {
+        const lang = ['python','c','java'].includes(String(selectedLanguage)) ? selectedLanguage : null;
+        const { data: ins, error: insErr } = await supabase
+          .from('participants')
+          .insert([{ contest_id: null, user_id: prof.user_id, selected_language: lang, score: 0 }])
+          .select('id')
+          .maybeSingle();
+        if (insErr || !ins?.id) return res.status(500).json({ error: insErr?.message || 'Failed to create participant' });
+        pid = ins.id;
+      }
+    }
+    if (!pid) return res.status(401).json({ error: 'Unauthorized or invalid participant' });
+    req.body.participantId = pid;
   }
 
   try {
     // Call RPC submit_and_increment if exists
     try {
       const { data, error } = await supabase.rpc('submit_and_increment', {
-        p_participant_id: participantId,
+        p_participant_id: req.body.participantId || participantId,
         p_question_id: questionId || null,
-        p_submitted_code: submittedCode || null,
+        p_submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
         p_status: 'correct',
         p_points_awarded: points,
       });
@@ -57,9 +92,9 @@ app.post('/submit', async (req, res) => {
       // Fallback: insert submission and update participant score
       const { error: subErr } = await supabase.from('submissions').insert([
         {
-          participant_id: participantId,
+          participant_id: req.body.participantId || participantId,
           question_id: questionId || null,
-          submitted_code: submittedCode || null,
+          submitted_code: ((submittedCode || '') + (typeof req.body.timeLeftSeconds === 'number' ? `\n\n# time_left_seconds=${req.body.timeLeftSeconds}` : '')),
           status: 'correct',
           points_awarded: points,
         },
@@ -69,7 +104,7 @@ app.post('/submit', async (req, res) => {
       const { data: partData, error: partErr } = await supabase
         .from('participants')
         .select('score')
-        .eq('id', participantId)
+        .eq('id', req.body.participantId || participantId)
         .limit(1)
         .maybeSingle();
       let newScore = (partData?.score || 0) + points;
@@ -77,10 +112,10 @@ app.post('/submit', async (req, res) => {
         // attempt to still update
       }
 
-      const { error: updErr } = await supabase.from('participants').update({ score: newScore }).eq('id', participantId);
+      const { error: updErr } = await supabase.from('participants').update({ score: newScore }).eq('id', req.body.participantId || participantId);
       if (updErr) throw updErr;
 
-      return res.json({ success: true, participant_id: participantId, new_score: newScore });
+      return res.json({ success: true, participant_id: req.body.participantId || participantId, new_score: newScore });
     }
   } catch (err) {
     console.error('submit error', err);

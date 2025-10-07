@@ -56,10 +56,10 @@ export const Submissions = () => {
         }
       }
 
-      // Fetch questions
+      // Fetch questions (include faulty_code for drill-in)
       let questionsMap: Record<string, any> = {};
       if (questionIds.length > 0) {
-        const { data: questionsData, error: questionsErr } = await supabase.from("questions").select("id, title, language").in("id", questionIds);
+        const { data: questionsData, error: questionsErr } = await supabase.from("questions").select("id, title, language, faulty_code, problem_statement, points").in("id", questionIds);
         if (!questionsErr && questionsData) {
           questionsData.forEach((q: any) => (questionsMap[q.id] = q));
         }
@@ -101,7 +101,8 @@ export const Submissions = () => {
           <TableHeader>
             <TableRow>
               <TableHead>Participant</TableHead>
-              <TableHead>Question</TableHead>
+            <TableHead>Question</TableHead>
+            <TableHead>Q#</TableHead>
               <TableHead>Language</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Points</TableHead>
@@ -117,6 +118,7 @@ export const Submissions = () => {
                   {submission.participants?.profiles?.full_name ?? "Anonymous"}
                 </TableCell>
                 <TableCell>{submission.questions?.title}</TableCell>
+                <TableCell>{submission.questions?.id ? String(submission.questions.id).slice(0, 8) : '-'}</TableCell>
                 <TableCell>
                   <Badge variant="outline">{submission.questions?.language ? submission.questions.language.toUpperCase() : "N/A"}</Badge>
                 </TableCell>
@@ -144,6 +146,16 @@ export const Submissions = () => {
                           <code>{selectedCode}</code>
                         </pre>
                       </div>
+                      {submission.questions && (
+                        <div className="mt-4 space-y-2">
+                          <h3 className="font-semibold">Question Details</h3>
+                          <div className="text-sm">Points: {submission.questions.points ?? '-'}</div>
+                          <div className="text-sm">Problem:</div>
+                          <div className="bg-accent p-3 rounded text-sm whitespace-pre-wrap">{submission.questions.problem_statement || ''}</div>
+                          <div className="text-sm">Faulty Code:</div>
+                          <div className="bg-accent p-3 rounded text-sm overflow-auto max-h-[300px]"><pre>{submission.questions.faulty_code || ''}</pre></div>
+                        </div>
+                      )}
                       {submission.execution_output && submission.execution_output.length > 0 && (
                         <div>
                           <h3 className="font-semibold mb-2">Execution Output:</h3>

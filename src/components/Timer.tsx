@@ -4,9 +4,10 @@ import { Clock } from "lucide-react";
 interface TimerProps {
   initialMinutes: number;
   onTimeUp?: () => void;
+  onTick?: (secondsLeft: number) => void;
 }
 
-export const Timer = ({ initialMinutes, onTimeUp }: TimerProps) => {
+export const Timer = ({ initialMinutes, onTimeUp, onTick }: TimerProps) => {
   const [timeLeft, setTimeLeft] = useState(initialMinutes * 60);
 
   useEffect(() => {
@@ -16,7 +17,11 @@ export const Timer = ({ initialMinutes, onTimeUp }: TimerProps) => {
     }
 
     const interval = setInterval(() => {
-      setTimeLeft((prev) => Math.max(0, prev - 1));
+      setTimeLeft((prev) => {
+        const next = Math.max(0, prev - 1);
+        try { onTick?.(next); } catch {}
+        return next;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
