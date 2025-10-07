@@ -14,7 +14,7 @@ export const Leaderboard = () => {
 
   useEffect(() => {
     fetchLeaderboard();
-    
+
     // Set up real-time subscription
     const channel = supabase
       .channel("leaderboard-changes")
@@ -32,24 +32,55 @@ export const Leaderboard = () => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      try {
+        supabase.removeChannel(channel);
+      } catch (e) {
+        // ignore
+      }
     };
   }, []);
 
   const fetchLeaderboard = async () => {
-    const { data, error } = await supabase
-      .from("participants")
-      .select(`
-        *,
-        profiles:user_id (full_name, email)
-      `)
-      .order("score", { ascending: false })
-      .order("time_taken_seconds", { ascending: true });
+    try {
+      const { data: parts, error: partsErr } = await supabase
+        .from("participants")
+        .select("id, user_id, selected_language, score, time_taken_seconds")
+        .order("score", { ascending: false })
+        .order("time_taken_seconds", { ascending: true });
 
-    if (error) {
-      toast.error("Failed to fetch leaderboard");
-    } else {
-      setParticipants(data || []);
+      if (partsErr) {
+        console.error("fetchLeaderboard participants error:", partsErr);
+        toast.error(partsErr.message || "Failed to fetch leaderboard");
+        setParticipants([]);
+        return;
+      }
+
+      const participantsData: any[] = parts || [];
+      const userIds = Array.from(new Set(participantsData.map((p) => p.user_id).filter(Boolean)));
+
+      let profilesMap: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const { data: profilesData, error: profilesErr } = await supabase
+          .from("profiles")
+          .select("user_id, full_name, email")
+          .in("user_id", userIds);
+
+        if (profilesErr) {
+          console.error("fetchLeaderboard profiles error:", profilesErr);
+        } else if (profilesData) {
+          profilesMap = (profilesData as any[]).reduce((acc, p) => {
+            acc[p.user_id] = p;
+            return acc;
+          }, {} as Record<string, any>);
+        }
+      }
+
+      const merged = participantsData.map((p) => ({ ...p, profiles: profilesMap[p.user_id] ?? null }));
+      setParticipants(merged);
+    } catch (err: any) {
+      console.error("Unexpected error fetching leaderboard:", err);
+      toast.error(err?.message || "Failed to fetch leaderboard");
+      setParticipants([]);
     }
   };
 
@@ -61,11 +92,11 @@ export const Leaderboard = () => {
     const headers = ["Rank", "Name", "Email", "Language", "Score", "Time (minutes)"];
     const rows = filteredParticipants.map((p, index) => [
       index + 1,
-      p.profiles?.full_name || "Anonymous",
-      p.profiles?.email || "",
-      p.selected_language || "",
-      p.score,
-      Math.floor(p.time_taken_seconds / 60),
+      p.profiles?.full_name ?? "Anonymous",
+      p.profiles?.email ?? "",
+      p.selected_language ?? "",
+      p.score ?? 0,
+      p.time_taken_seconds ? Math.floor(p.time_taken_seconds / 60) : 0,
     ]);
 
     const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
@@ -127,13 +158,13 @@ export const Leaderboard = () => {
                     #{index + 1}
                   </div>
                 </TableCell>
-                <TableCell className="font-medium">{participant.profiles?.full_name || "Anonymous"}</TableCell>
-                <TableCell>{participant.profiles?.email}</TableCell>
+                <TableCell className="font-medium">{participant.profiles?.full_name ?? "Anonymous"}</TableCell>
+                <TableCell>{participant.profiles?.email ?? ""}</TableCell>
                 <TableCell>
-                  <Badge variant="outline">{participant.selected_language?.toUpperCase()}</Badge>
+                  <Badge variant="outline">{participant.selected_language ? participant.selected_language.toUpperCase() : "N/A"}</Badge>
                 </TableCell>
-                <TableCell className="text-2xl font-bold text-primary">{participant.score}</TableCell>
-                <TableCell>{Math.floor(participant.time_taken_seconds / 60)} min</TableCell>
+                <TableCell className="text-2xl font-bold text-primary">{participant.score ?? 0}</TableCell>
+                <TableCell>{participant.time_taken_seconds ? Math.floor(participant.time_taken_seconds / 60) : 0} min</TableCell>
               </TableRow>
             ))}
           </TableBody>

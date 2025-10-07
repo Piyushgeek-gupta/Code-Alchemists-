@@ -1,4 +1,7 @@
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Code2, ArrowRight } from "lucide-react";
@@ -9,6 +12,9 @@ import { toast } from "sonner";
 
 const LanguageSelection = () => {
   const navigate = useNavigate();
+  const [lockedLang, setLockedLang] = useState<string | null>(null);
+  const { user, loading } = useAuth();
+  const [fetchedDbLang, setFetchedDbLang] = useState<string | null>(null);
 
   const languages = [
     {
@@ -31,9 +37,88 @@ const LanguageSelection = () => {
     },
   ];
 
-  const handleSelect = (language: string) => {
+  useEffect(() => {
+    // If a user is signed-in, prefer the DB participant record for reset behavior.
+    const init = async () => {
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from("participants")
+            .select("selected_language")
+            .eq("user_id", user.id)
+            .limit(1)
+            .maybeSingle();
+
+          if (error) {
+            console.error("Error fetching participant for language selection:", error);
+            // fallback to localStorage
+            const existing = localStorage.getItem("selectedLanguage");
+            if (existing) setLockedLang(existing);
+            return;
+          }
+
+          // If DB has a selected_language, lock to it. If DB value is null/absent, allow reselect.
+          if (data && data.selected_language) {
+            setFetchedDbLang(data.selected_language);
+            setLockedLang(data.selected_language);
+            localStorage.setItem("selectedLanguage", data.selected_language);
+          } else {
+            // admin may have reset; clear localStorage and allow selection
+            localStorage.removeItem("selectedLanguage");
+            setLockedLang(null);
+          }
+          // continue
+          return;
+        } catch (err) {
+          console.error("Unexpected error checking participant language:", err);
+        }
+      }
+
+      // no signed-in user: fall back to client-only lock
+      const existing = localStorage.getItem("selectedLanguage");
+      if (existing) setLockedLang(existing);
+    };
+
+    // Only run after auth has loaded
+    if (!loading) init();
+    // handle forceReset URL param (for testing or for admin-provided link)
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("forceReset") === "1") {
+      localStorage.removeItem("selectedLanguage");
+      setLockedLang(null);
+      toast.success("Language selection reset via URL param. You can choose again.");
+    }
+  }, [user, loading]);
+
+  const handleSelect = async (language: string) => {
+    // If user already selected once, prevent changing locally
+    if (lockedLang) {
+      toast.error("Language already selected. Contact admin to change.");
+      return;
+    }
+
     toast.success(`${language} selected! Timer starting...`);
-    localStorage.setItem("selectedLanguage", language);
+    // Store lowercase language id to match DB enum values (python, c, java)
+    const key = language.toLowerCase();
+    localStorage.setItem("selectedLanguage", key);
+    setLockedLang(key);
+
+    // If user is signed-in, persist to their participant record if allowed.
+    if (user) {
+      try {
+        const { error } = await supabase
+          .from("participants")
+          .update({ selected_language: key as "python" | "c" | "java" })
+          .eq("user_id", user.id)
+          .is("selected_language", null);
+        if (error) {
+          console.warn("Could not persist selected language to participant row:", error.message);
+        }
+      } catch (err) {
+        console.error("Failed to persist selected language:", err);
+      }
+    }
+
     setTimeout(() => {
       navigate("/contest");
     }, 1000);
@@ -41,6 +126,12 @@ const LanguageSelection = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="absolute top-4 right-4 bg-card p-3 rounded shadow text-sm text-muted-foreground">
+        <div>localStorage.selectedLanguage: <strong>{localStorage.getItem("selectedLanguage") ?? "(none)"}</strong></div>
+        {user && <div>DB selected_language: <strong>{fetchedDbLang ?? "(none)"}</strong></div>}
+        <div>lockedLang state: <strong>{lockedLang ?? "(none)"}</strong></div>
+        <div className="text-xs text-muted-foreground mt-1">Tip: append <code>?forceReset=1</code> to this URL to clear client lock</div>
+      </div>
       <div className="w-full max-w-6xl space-y-8">
         <div className="text-center space-y-4">
           <div className="flex justify-center mb-4">
@@ -61,8 +152,8 @@ const LanguageSelection = () => {
           {languages.map((lang) => (
             <Card
               key={lang.name}
-              className="group p-8 space-y-6 hover:scale-105 transition-all duration-300 cursor-pointer border-2 hover:border-primary cyber-glow"
-              onClick={() => handleSelect(lang.name)}
+              className={`group p-8 space-y-6 ${lockedLang ? "opacity-60 cursor-default" : "hover:scale-105 cursor-pointer"} transition-all duration-300 border-2 hover:border-primary cyber-glow`}
+              onClick={() => !lockedLang && handleSelect(lang.name)}
             >
               <div className="flex justify-center">
                 <div className="relative">
@@ -94,7 +185,7 @@ const LanguageSelection = () => {
                 </div>
               </div>
 
-              <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground group-hover:gap-4 transition-all">
+              <Button className="w-full bg-primary hover:bg-primary/90 text-primary-foreground group-hover:gap-4 transition-all" disabled={!!lockedLang}>
                 Select {lang.name}
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>

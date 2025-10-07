@@ -62,11 +62,13 @@ export const Questions = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const payload = {
+    // Attempt create/update (DB policies will decide if it's allowed).
+
+    const payload: any = {
       ...formData,
       test_cases: JSON.parse(formData.test_cases),
-      created_by: user?.id,
     };
+    payload.created_by = user?.id ?? null;
 
     if (selectedQuestion) {
       const { error } = await supabase
@@ -75,7 +77,7 @@ export const Questions = () => {
         .eq("id", selectedQuestion.id);
 
       if (error) {
-        toast.error("Failed to update question");
+        toast.error(error.message || "Failed to update question");
       } else {
         toast.success("Question updated successfully");
         setIsDialogOpen(false);
@@ -85,7 +87,7 @@ export const Questions = () => {
       const { error } = await supabase.from("questions").insert([payload]);
 
       if (error) {
-        toast.error("Failed to create question");
+        toast.error(error.message || "Failed to create question");
       } else {
         toast.success("Question created successfully");
         setIsDialogOpen(false);
@@ -99,7 +101,7 @@ export const Questions = () => {
       const { error } = await supabase.from("questions").delete().eq("id", id);
 
       if (error) {
-        toast.error("Failed to delete question");
+        toast.error(error.message || "Failed to delete question");
       } else {
         toast.success("Question deleted successfully");
         fetchQuestions();

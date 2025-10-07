@@ -8,7 +8,6 @@ import { Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-
 export const Announcements = () => {
   const [announcements, setAnnouncements] = useState<any[]>([]);
   const [contests, setContests] = useState<any[]>([]);
@@ -51,16 +50,18 @@ export const Announcements = () => {
       return;
     }
 
+    // Attempt send (DB policies will determine acceptance). Errors are shown below.
+
     const { error } = await supabase.from("announcements").insert([
       {
         contest_id: selectedContest,
         message,
-        sent_by: user?.id,
+        sent_by: user?.id ?? null,
       },
     ]);
 
     if (error) {
-      toast.error("Failed to send announcement");
+      toast.error(error.message || "Failed to send announcement");
     } else {
       toast.success("Announcement sent successfully");
       setMessage("");

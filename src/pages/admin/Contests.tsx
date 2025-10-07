@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Play, Pause, StopCircle } from "lucide-react";
+import { Plus, Play, Pause, StopCircle, Pencil } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 export const Contests = () => {
   const [contests, setContests] = useState<any[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [selectedContestId, setSelectedContestId] = useState<string | null>(null);
   const [formData, setFormData] = useState<{
     name: string;
     description: string;
@@ -48,23 +49,35 @@ export const Contests = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const { error } = await supabase.from("contests").insert([{
-      ...formData,
-      created_by: user?.id,
-    }]);
+    const payload = { ...formData, created_by: user?.id ?? null };
 
-    if (error) {
-      toast.error("Failed to create contest");
+    if (selectedContestId) {
+      // Update existing contest
+      const { error } = await supabase.from("contests").update(payload).eq("id", selectedContestId);
+      if (error) {
+        toast.error(error.message || "Failed to update contest");
+      } else {
+        toast.success("Contest updated successfully");
+        setIsDialogOpen(false);
+        setSelectedContestId(null);
+        fetchContests();
+      }
     } else {
-      toast.success("Contest created successfully");
-      setIsDialogOpen(false);
-      fetchContests();
-      setFormData({
-        name: "",
-        description: "",
-        duration_minutes: 30,
-        status: "scheduled",
-      });
+      // Create new contest
+      const { error } = await supabase.from("contests").insert([payload]);
+      if (error) {
+        toast.error(error.message || "Failed to create contest");
+      } else {
+        toast.success("Contest created successfully");
+        setIsDialogOpen(false);
+        fetchContests();
+        setFormData({
+          name: "",
+          description: "",
+          duration_minutes: 30,
+          status: "scheduled",
+        });
+      }
     }
   };
 
@@ -101,7 +114,7 @@ export const Contests = () => {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button onClick={() => { setSelectedContestId(null); setFormData({ name: "", description: "", duration_minutes: 30, status: "scheduled" }); setIsDialogOpen(true); }}>
               <Plus className="h-4 w-4 mr-2" />
               Create Contest
             </Button>
@@ -131,7 +144,7 @@ export const Contests = () => {
                 required
               />
               <Button type="submit" className="w-full">
-                Create Contest
+                {selectedContestId ? 'Save Changes' : 'Create Contest'}
               </Button>
             </form>
           </DialogContent>
@@ -168,6 +181,24 @@ export const Contests = () => {
                         <Play className="h-4 w-4 text-green-500" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        // open edit dialog
+                        setSelectedContestId(contest.id);
+                        setFormData({
+                          name: contest.name || "",
+                          description: contest.description || "",
+                          duration_minutes: contest.duration_minutes || 30,
+                          status: contest.status || "scheduled",
+                        });
+                        setIsDialogOpen(true);
+                      }}
+                      title="Edit Contest"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
                     {contest.status === "active" && (
                       <Button
                         variant="ghost"

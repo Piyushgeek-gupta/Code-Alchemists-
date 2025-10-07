@@ -35,7 +35,9 @@ export const AdminLayout = () => {
   ];
 
   const handleSignOut = async () => {
-    await signOut();
+    if (typeof signOut === "function") {
+      await signOut();
+    }
     navigate("/login");
   };
 

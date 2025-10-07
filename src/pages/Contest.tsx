@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -79,8 +81,150 @@ const Contest = () => {
       return;
     }
     setSelectedLanguage(lang);
-    setCode(questions[0].faultyCode);
+
+    // Try to load questions from Supabase for the selected language
+    (async () => {
+      try {
+        // cast to DB enum type to satisfy TypeScript
+        const langKey = lang as "python" | "c" | "java";
+        const { data } = await (await import("@/integrations/supabase/client")).supabase
+          .from("questions")
+          .select("*")
+          .eq("language", langKey)
+          .order("created_at", { ascending: true });
+
+        if (data && data.length > 0) {
+          // Map DB rows to Question type expected by the UI
+          const dbQuestions: Question[] = data.map((q: any, idx: number) => ({
+            id: idx + 1,
+            title: q.title || `Question ${idx + 1}`,
+            difficulty: q.difficulty === "easy" ? "Easy" : q.difficulty === "medium" ? "Medium" : "Hard",
+            points: q.points || 10,
+            description: q.problem_statement || "",
+            hint: q.hint || "",
+            expectedInput: q.test_cases ? JSON.stringify(q.test_cases) : "",
+            expectedOutput: "",
+            faultyCode: q.faulty_code || "",
+            solved: false,
+          }));
+
+          setQuestions(dbQuestions);
+          setCode(dbQuestions[0].faultyCode);
+          return;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      // Fallback to built-in samples
+      setCode(questions[0].faultyCode);
+    })();
   }, [navigate]);
+
+  const { user } = useAuth();
+  const [participantId, setParticipantId] = useState<string | null>(null);
+
+  // Local persistence helpers (used when DB writes fail or DB state not available)
+  const saveLocalProgress = (lang: string | null, scoreVal: number, solvedIds: number[]) => {
+    try {
+      const key = `progress_${lang || selectedLanguage || "unknown"}`;
+      localStorage.setItem(key, JSON.stringify({ score: scoreVal, solved: solvedIds }));
+    } catch (e) {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    const fetchParticipant = async () => {
+      if (!user) return;
+      try {
+        // Try to fetch an existing participant row for this user
+        const { data, error } = await supabase
+          .from("participants")
+          .select("id, score, selected_language")
+          .eq("user_id", user.id)
+          .limit(1)
+          .maybeSingle();
+
+        if (error) console.warn("Failed to fetch participant:", error.message);
+
+        let participantRow = data ?? null;
+
+        // If no participant found, attempt to create one (language-scoped)
+        if (!participantRow) {
+          const lang = (localStorage.getItem("selectedLanguage") || null) as "python" | "c" | "java" | null;
+          const { data: insData, error: insErr } = await supabase
+            .from("participants")
+            .insert([
+              {
+                contest_id: null,
+                user_id: user.id,
+                selected_language: lang,
+                score: 0,
+              },
+            ])
+            .select("id, score, selected_language")
+            .maybeSingle();
+
+          if (insErr) console.warn("Failed to create participant record:", insErr.message);
+          participantRow = insData ?? null;
+        }
+
+        if (participantRow) {
+          setParticipantId(participantRow.id);
+          setScore(participantRow.score ?? 0);
+          // sync any local fallback into DB if it's higher
+          try {
+            const langKey = participantRow.selected_language ?? selectedLanguage ?? (localStorage.getItem("selectedLanguage") || "");
+            const raw = localStorage.getItem(`progress_${langKey}`);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed?.score && (parsed.score > (participantRow.score ?? 0))) {
+                // try to push local higher score to DB
+                const { error: updErr } = await supabase.from("participants").update({ score: parsed.score }).eq("id", participantRow.id);
+                if (updErr) {
+                  console.warn("Failed to sync local progress to DB:", updErr.message);
+                  toast.error(`Unable to sync local progress: ${updErr.message}`);
+                } else {
+                  setScore(parsed.score);
+                  try { localStorage.removeItem(`progress_${langKey}`); } catch (e) {}
+                }
+              } else {
+                // clear local fallback if DB is authoritative
+                try { localStorage.removeItem(`progress_${langKey}`); } catch (e) {}
+              }
+            }
+          } catch (e) {
+            // ignore localStorage parse errors
+          }
+        } else {
+          // No DB participant available: load local fallback progress so refresh doesn't reset state
+          try {
+            const langKey = selectedLanguage || (localStorage.getItem("selectedLanguage") || "");
+            const raw = localStorage.getItem(`progress_${langKey}`);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed?.score) setScore(parsed.score);
+              if (Array.isArray(parsed?.solved)) {
+                const updated = [...questions];
+                parsed.solved.forEach((qid: number) => {
+                  const idx = updated.findIndex((q) => q.id === qid);
+                  if (idx >= 0) updated[idx].solved = true;
+                });
+                setQuestions(updated);
+              }
+            }
+          } catch (e) {
+            // ignore localStorage parse errors
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch/create participant:", err);
+      }
+    };
+
+    fetchParticipant();
+  }, [user]);
 
   const handleQuestionChange = (index: number) => {
     setCurrentQuestion(index);
@@ -91,14 +235,70 @@ const Contest = () => {
   const handleSubmit = () => {
     // Mock evaluation - in production, send to backend
     const isCorrect = Math.random() > 0.5; // Simulate 50% success rate
-    
+
+    const currentPoints = questions[currentQuestion].points;
+
     if (isCorrect) {
       const updatedQuestions = [...questions];
       if (!updatedQuestions[currentQuestion].solved) {
         updatedQuestions[currentQuestion].solved = true;
         setQuestions(updatedQuestions);
-        setScore(score + updatedQuestions[currentQuestion].points);
-        toast.success(`Correct! +${updatedQuestions[currentQuestion].points} points`, {
+
+        // Persist submission and update participant score if we have a participantId
+        (async () => {
+          try {
+                // Insert submission (store language)
+                if (participantId) {
+                  // Send submission to server endpoint which uses service role to persist
+                  try {
+                    const session = await (supabase.auth.getSession() as any).then(r => r.data.session);
+                    const token = session?.access_token;
+                    const resp = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/submit', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        Authorization: token ? `Bearer ${token}` : '',
+                      },
+                      body: JSON.stringify({ participantId, questionId: null, submittedCode: code, points: currentPoints }),
+                    });
+
+                    if (!resp.ok) {
+                      const body = await resp.json().catch(() => ({}));
+                      toast.error(`Submit failed: ${body?.error || resp.statusText}`);
+                      // fallback
+                      saveLocalProgress(selectedLanguage, (score || 0) + currentPoints, questions.filter(q => q.solved).map(q => q.id));
+                      setScore((s) => s + currentPoints);
+                    } else {
+                      const data = await resp.json();
+                      const newScore = data?.data ? (Array.isArray(data.data) ? data.data[0]?.new_score : data.data.new_score) : data?.new_score;
+                      if (typeof newScore === 'number') {
+                        setScore(newScore);
+                        try { localStorage.removeItem(`progress_${selectedLanguage}`); } catch (e) {}
+                      } else if (typeof data?.new_score === 'number') {
+                        setScore(data.new_score);
+                      } else {
+                        setScore((s) => s + currentPoints);
+                      }
+                    }
+                  } catch (err: any) {
+                    console.error('Submit request failed', err);
+                    toast.error(`Submit failed: ${err?.message || String(err)}`);
+                    saveLocalProgress(selectedLanguage, (score || 0) + currentPoints, questions.filter(q => q.solved).map(q => q.id));
+                    setScore((s) => s + currentPoints);
+                  }
+                } else {
+                  // no participantId: persist locally
+                  const newLocalScore = (score || 0) + currentPoints;
+                  setScore(newLocalScore);
+                  saveLocalProgress(selectedLanguage, newLocalScore, questions.filter(q => q.solved).map(q => q.id));
+                }
+          } catch (err) {
+            console.error("Error persisting submission/score:", err);
+            setScore((s) => s + currentPoints);
+          }
+        })();
+
+        toast.success(`Correct! +${currentPoints} points`, {
           description: "Bug fixed successfully!",
         });
       } else {
