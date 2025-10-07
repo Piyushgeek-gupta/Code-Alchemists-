@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
@@ -12,20 +13,64 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       toast.error("Please fill in all fields");
       return;
     }
 
-    // Mock authentication - replace with Lovable Cloud auth
-    if (email && password.length >= 6) {
-      toast.success("Login successful!");
-      navigate("/language-selection");
+    // Sign in via Supabase
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+
+    // Determine userId. If email is unconfirmed, fall back to profiles/participants lookup by email.
+    let userId: string | null = signInData?.user?.id ?? null;
+    if (!userId && signInError && /confirm/i.test(signInError.message || "")) {
+      const { data: profileByEmail } = await supabase
+        .from("profiles")
+        .select("user_id, email")
+        .eq("email", email)
+        .limit(1);
+      userId = profileByEmail && profileByEmail.length > 0 ? profileByEmail[0].user_id : null;
+    }
+
+    if (!userId) {
+      toast.error(signInError?.message || "Invalid credentials");
+      return;
+    }
+
+    // Only allow users who were added as participants by admin
+    const { data: participant, error: partErr } = await supabase
+      .from("participants")
+      .select("id, selected_language")
+      .eq("user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (partErr) {
+      toast.error(partErr.message || "Failed to verify participant");
+      return;
+    }
+
+    if (!participant) {
+      toast.error("Access restricted. Your account is not registered as a participant.");
+      if (signInData?.user) await supabase.auth.signOut();
+      return;
+    }
+
+    toast.success("Login successful!");
+
+    // Persist email for fallback flows (e.g., unconfirmed email without session)
+    try { localStorage.setItem("login_email", email); } catch (e) {}
+
+    // If participant already chose a language in DB, go to contest; otherwise force language-selection
+    if (participant.selected_language) {
+      try { localStorage.setItem("selectedLanguage", participant.selected_language as string); } catch (e) {}
+      navigate("/contest");
     } else {
-      toast.error("Invalid credentials");
+      try { localStorage.removeItem("selectedLanguage"); } catch (e) {}
+      navigate("/language-selection");
     }
   };
 

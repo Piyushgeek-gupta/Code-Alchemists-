@@ -51,9 +51,7 @@ const LanguageSelection = () => {
 
           if (error) {
             console.error("Error fetching participant for language selection:", error);
-            // fallback to localStorage
-            const existing = localStorage.getItem("selectedLanguage");
-            if (existing) setLockedLang(existing);
+            // fallback only for unauthenticated flows; skip localStorage for signed-in users
             return;
           }
 
@@ -61,10 +59,10 @@ const LanguageSelection = () => {
           if (data && data.selected_language) {
             setFetchedDbLang(data.selected_language);
             setLockedLang(data.selected_language);
-            localStorage.setItem("selectedLanguage", data.selected_language);
+            try { localStorage.setItem("selectedLanguage", data.selected_language); } catch (e) {}
           } else {
             // admin may have reset; clear localStorage and allow selection
-            localStorage.removeItem("selectedLanguage");
+            try { localStorage.removeItem("selectedLanguage"); } catch (e) {}
             setLockedLang(null);
           }
           // continue
@@ -81,6 +79,25 @@ const LanguageSelection = () => {
 
     // Only run after auth has loaded
     if (!loading) init();
+
+    // Authenticated users should only consider DB selection for redirect
+    if (!loading) {
+      if (user) {
+        if (fetchedDbLang) {
+          try { localStorage.setItem("selectedLanguage", fetchedDbLang); } catch (e) {}
+          navigate("/contest");
+          return;
+        }
+      } else {
+        const local = localStorage.getItem("selectedLanguage");
+        const chosen = (lockedLang || local) as string | null;
+        if (chosen) {
+          try { localStorage.setItem("selectedLanguage", chosen); } catch (e) {}
+          navigate("/contest");
+          return;
+        }
+      }
+    }
     // handle forceReset URL param (for testing or for admin-provided link)
     const params = new URLSearchParams(window.location.search);
     if (params.get("forceReset") === "1") {
@@ -103,20 +120,33 @@ const LanguageSelection = () => {
     localStorage.setItem("selectedLanguage", key);
     setLockedLang(key);
 
-    // If user is signed-in, persist to their participant record if allowed.
-    if (user) {
-      try {
+    // Persist selection
+    try {
+      if (user) {
         const { error } = await supabase
           .from("participants")
           .update({ selected_language: key as "python" | "c" | "java" })
           .eq("user_id", user.id)
           .is("selected_language", null);
-        if (error) {
-          console.warn("Could not persist selected language to participant row:", error.message);
+        if (error) throw error;
+      } else {
+        const loginEmail = localStorage.getItem("login_email");
+        if (loginEmail) {
+          const endpoint = (import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/select-language';
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: loginEmail, language: key }),
+          });
+          if (!resp.ok) {
+            const body = await resp.json().catch(() => ({}));
+            throw new Error(body?.error || resp.statusText + ` (POST ${endpoint})`);
+          }
         }
-      } catch (err) {
-        console.error("Failed to persist selected language:", err);
       }
+    } catch (err) {
+      console.error("Failed to persist selected language:", err);
+      toast.error(`Failed to save language: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     setTimeout(() => {

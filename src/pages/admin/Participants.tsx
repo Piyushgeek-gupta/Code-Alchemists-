@@ -5,7 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Ban, RotateCcw, Plus } from "lucide-react";
+import { Ban, RotateCcw, Plus, Trash2, KeyRound } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ export const Participants = () => {
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [newLanguage, setNewLanguage] = useState("python");
+  // language selection removed on add; participants pick language once on first login
   // contests removed - participant is language-scoped now
   const [fetchError, setFetchError] = useState<string | null>(null);
 
@@ -123,6 +123,58 @@ export const Participants = () => {
     }
   };
 
+  const removeParticipant = async (participant: any) => {
+    if (!confirm("Remove this participant? This deletes their account and profile.")) return;
+
+    // Optimistic UI update
+    setParticipants((prev) => prev.filter((p) => p.id !== participant.id));
+
+    try {
+      // Prefer server (handles auth user deletion)
+      const resp = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/admin/remove-participant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantId: participant.id, userId: participant.user_id }),
+      });
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body?.error || resp.statusText);
+      }
+      toast.success("Participant removed");
+      fetchParticipants();
+    } catch (err: any) {
+      // Fallback: try client-side deletions
+      try {
+        const { error: delPartErr } = await supabase.from("participants").delete().eq("id", participant.id);
+        if (delPartErr) throw delPartErr;
+        await supabase.from("profiles").delete().eq("user_id", participant.user_id);
+        toast.success("Participant removed (client)");
+        fetchParticipants();
+      } catch (inner: any) {
+        toast.error(inner?.message || err?.message || "Failed to remove participant");
+        // Re-sync from server in case of mismatch
+        fetchParticipants();
+      }
+    }
+  };
+
+  const updatePassword = async (participant: any) => {
+    const pwd = prompt("Enter new password for this participant:");
+    if (!pwd) return;
+    try {
+      const resp = await fetch((import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/admin/update-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: participant.user_id, newPassword: pwd }),
+      });
+      const body = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(body?.error || resp.statusText);
+      toast.success("Password updated");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update password");
+    }
+  };
+
   const handleAddParticipant = async () => {
     if (!newName || !newEmail || !newPassword) {
       toast.error("Please provide name, email and password");
@@ -150,10 +202,10 @@ export const Participants = () => {
       return;
     }
 
-    // Insert participant row (language-scoped, no contest_id)
+    // Insert participant row (no language preset; user selects once at first login)
     const participantId = (typeof crypto !== 'undefined' && (crypto as any).randomUUID) ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2);
     const { error: partErr } = await supabase.from("participants").insert([
-      { id: participantId, contest_id: null, user_id: userId, selected_language: newLanguage as "python" | "c" | "java" },
+      { id: participantId, contest_id: null, user_id: userId, selected_language: null },
     ]);
     if (partErr) {
       toast.error(partErr.message || "Failed to create participant");
@@ -170,7 +222,6 @@ export const Participants = () => {
     setNewEmail("");
     setNewPassword("");
   // contests removed
-    setNewLanguage("python");
     fetchParticipants();
   };
 
@@ -225,17 +276,7 @@ export const Participants = () => {
               <Input placeholder="Full name" value={newName} onChange={(e) => setNewName(e.target.value)} />
               <Input placeholder="Email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
               <Input placeholder="Password" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-              {/* contest selection removed - participants are language-scoped */}
-              <Select value={newLanguage} onValueChange={setNewLanguage}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="python">Python</SelectItem>
-                  <SelectItem value="c">C</SelectItem>
-                  <SelectItem value="java">Java</SelectItem>
-                </SelectContent>
-              </Select>
+              {/* language selection removed - participants choose on first login */}
               <div className="flex gap-2">
                 <Button onClick={handleAddParticipant}>Add</Button>
                 <Button variant="ghost" onClick={() => setIsAddOpen(false)}>Cancel</Button>
@@ -314,6 +355,22 @@ export const Participants = () => {
                       title="Reset Language"
                     >
                       <Plus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => updatePassword(participant)}
+                      title="Update Password"
+                    >
+                      <KeyRound className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeParticipant(participant)}
+                      title="Remove Participant"
+                    >
+                      <Trash2 className="h-4 w-4 text-red-600" />
                     </Button>
                   </div>
                 </TableCell>
