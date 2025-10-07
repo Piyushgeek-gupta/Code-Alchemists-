@@ -133,14 +133,31 @@ const LanguageSelection = () => {
         const loginEmail = localStorage.getItem("login_email");
         if (loginEmail) {
           const endpoint = (import.meta.env.VITE_SERVER_URL || 'http://localhost:8787') + '/select-language';
-          const resp = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: loginEmail, language: key }),
-          });
-          if (!resp.ok) {
-            const body = await resp.json().catch(() => ({}));
-            throw new Error(body?.error || resp.statusText + ` (POST ${endpoint})`);
+          try {
+            const resp = await fetch(endpoint, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: loginEmail, language: key }),
+            });
+            if (!resp.ok) {
+              const body = await resp.json().catch(() => ({}));
+              throw new Error(body?.error || resp.statusText + ` (POST ${endpoint})`);
+            }
+          } catch (postErr) {
+            // Fallback: try client-side via anon key (works if dev policies enabled)
+            const { data: prof, error: profErr } = await supabase
+              .from("profiles")
+              .select("user_id")
+              .eq("email", loginEmail)
+              .limit(1)
+              .maybeSingle();
+            if (profErr || !prof?.user_id) throw postErr;
+            const { error: updErr } = await supabase
+              .from("participants")
+              .update({ selected_language: key as "python" | "c" | "java" })
+              .eq("user_id", prof.user_id)
+              .is("selected_language", null);
+            if (updErr) throw postErr;
           }
         }
       }
