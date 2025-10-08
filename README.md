@@ -1,73 +1,23 @@
-# Welcome to your Lovable project
+✨ Ready to turn bugs into brilliance ? ✨
 
-## Project info
+Unleash your coding skills at CODE ALCHEMISTS, a thrilling challenge presented by Google Developer Groups On Campus Vishwaniketan's iMEET ! 💻🐛
 
-**URL**: https://lovable.dev/projects/05b9250d-a7bc-4b5f-bc59-5eb7765bd6b7
+Date: 9th October 2025 🗓
+Participation: Individual or Duo 👤👥
+Registration: Absolutely FREE! 🆓
+Venue: Vishwaniketan's iMEET 🏢
+🏆 Prize Pool: ₹1000+ cash prizes 💸
+📜 Verified Certificates for all participants !
 
-## How can I edit this code?
+🚨Limited Seats!!
 
-There are several ways of editing your application.
+Why Join? 🤔
 
-**Use Lovable**
+Sharpen your debugging and problem-solving skills! 💡
+Compete with fellow coders and showcase your talent. 🌟
+Add a valuable certificate from Google Developer Groups to your profile ! 🏆
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/05b9250d-a7bc-4b5f-bc59-5eb7765bd6b7) and start prompting.
+Register here:
+[  https://forms.gle/W5KL5myW2EXoeNqp6  ]
 
-Changes made via Lovable will be committed automatically to this repo.
-
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/05b9250d-a7bc-4b5f-bc59-5eb7765bd6b7) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+📅 Don’t wait – Register NOW and prove your coding mettle!
