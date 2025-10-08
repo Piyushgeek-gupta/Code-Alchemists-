@@ -69,7 +69,7 @@ const Index = () => {
 
             <Card className="p-6 space-y-3 bg-card/50 backdrop-blur border-accent/20">
               <Trophy className="h-10 w-10 text-accent mx-auto" />
-              <h3 className="text-xl font-bold text-foreground">430 Points</h3>
+              <h3 className="text-xl font-bold text-foreground">200 Points</h3>
               <p className="text-sm text-muted-foreground">Maximum possible score</p>
             </Card>
           </div>
@@ -152,7 +152,7 @@ const Index = () => {
                 <div className="inline-block px-4 py-2 rounded-full bg-green-500/20 text-green-400 font-bold text-lg mb-3">
                   EASY
                 </div>
-                <div className="text-5xl font-bold text-green-400">12</div>
+                <div className="text-5xl font-bold text-green-400">5</div>
                 <div className="text-sm text-muted-foreground mt-2">Questions</div>
               </div>
               <div className="pt-4 border-t border-border text-center">
@@ -166,7 +166,7 @@ const Index = () => {
                 <div className="inline-block px-4 py-2 rounded-full bg-yellow-500/20 text-yellow-400 font-bold text-lg mb-3">
                   MEDIUM
                 </div>
-                <div className="text-5xl font-bold text-yellow-400">8</div>
+                <div className="text-5xl font-bold text-yellow-400">3</div>
                 <div className="text-sm text-muted-foreground mt-2">Questions</div>
               </div>
               <div className="pt-4 border-t border-border text-center">
@@ -180,7 +180,7 @@ const Index = () => {
                 <div className="inline-block px-4 py-2 rounded-full bg-red-500/20 text-red-400 font-bold text-lg mb-3">
                   HARD
                 </div>
-                <div className="text-5xl font-bold text-red-400">5</div>
+                <div className="text-5xl font-bold text-red-400">3</div>
                 <div className="text-sm text-muted-foreground mt-2">Questions</div>
               </div>
               <div className="pt-4 border-t border-border text-center">
